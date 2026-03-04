@@ -16,9 +16,9 @@ import kotlin.coroutines.resume
 class MLKitHelper {
 
     enum class Language(val displayName: String) {
-        LATIN("English / Latin (French, German, Spanish, Italian, Portuguese)"),
-        DEVANAGARI("Hindi / Devanagari (Marathi, Sanskrit, Nepali)"),
-        CHINESE("Chinese (Simplified & Traditional)"),
+        LATIN("English / Latin"),
+        DEVANAGARI("Hindi / Devanagari"),
+        CHINESE("Chinese"),
         JAPANESE("Japanese"),
         KOREAN("Korean")
     }
@@ -40,17 +40,14 @@ class MLKitHelper {
     suspend fun extractText(bitmap: Bitmap, language: Language): String {
         return try {
             val image = InputImage.fromBitmap(bitmap, 0)
-            val recognizer = getRecognizer(language)
-
             suspendCancellableCoroutine { continuation ->
-                recognizer.process(image)
-                    .addOnSuccessListener { visionText ->
-                        val result = visionText.text
-                        Log.d("MLKit", "[${language.name}] Result length: ${result.length}")
-                        continuation.resume(result.ifBlank { "" })
+                getRecognizer(language).process(image)
+                    .addOnSuccessListener { result ->
+                        Log.d("MLKit", "Result: ${result.text.length} chars")
+                        continuation.resume(result.text)
                     }
                     .addOnFailureListener { e ->
-                        Log.e("MLKit", "[${language.name}] Error: ${e.message}")
+                        Log.e("MLKit", "Error: ${e.message}")
                         continuation.resume("")
                     }
             }

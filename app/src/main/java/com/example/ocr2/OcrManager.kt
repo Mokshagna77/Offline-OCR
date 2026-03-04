@@ -8,55 +8,48 @@ import kotlinx.coroutines.coroutineScope
 
 class OcrManager(context: Context) {
 
-    private val mlKitHelper    = MLKitHelper()
+    private val mlKitHelper     = MLKitHelper()
     private val tesseractHelper = TesseractHelper(context)
 
     suspend fun extractText(
         bitmap: Bitmap,
-        language: MLKitHelper.Language = MLKitHelper.Language.LATIN,
-        useBothEngines: Boolean = true
+        language: MLKitHelper.Language = MLKitHelper.Language.LATIN
     ): String = coroutineScope {
 
-        // Always run ML Kit
+        // Run both engines in parallel
         val mlKitDeferred = async { mlKitHelper.extractText(bitmap, language) }
+        val tessDeferred  = if (language == MLKitHelper.Language.LATIN)
+            async { tesseractHelper.extractText(bitmap) } else null
 
-        // Run Tesseract in parallel (only for Latin/English)
-        val tesseractDeferred = if (useBothEngines && language == MLKitHelper.Language.LATIN) {
-            async { tesseractHelper.extractText(bitmap) }
-        } else null
+        val mlResult   = mlKitDeferred.await()
+        val tessResult = tessDeferred?.await() ?: ""
 
-        val mlKitResult     = mlKitDeferred.await()
-        val tesseractResult = tesseractDeferred?.await() ?: ""
+        Log.d("OcrManager", "MLKit: ${mlResult.length} chars | Tesseract: ${tessResult.length} chars")
 
-        Log.d("OcrManager", "MLKit score: ${scoreResult(mlKitResult)}")
-        Log.d("OcrManager", "Tesseract score: ${scoreResult(tesseractResult)}")
-
-        val best = pickBestResult(mlKitResult, tesseractResult)
-
-        if (best.isBlank()) "No text detected" else cleanResult(best)
+        val best = pickBest(mlResult, tessResult)
+        if (best.isBlank()) "No text detected" else cleanText(best)
     }
 
-    private fun pickBestResult(mlKit: String, tesseract: String): String {
-        val mlScore  = scoreResult(mlKit)
-        val tScore   = scoreResult(tesseract)
-        return if (mlScore >= tScore) mlKit else tesseract
+    private fun pickBest(a: String, b: String): String {
+        val scoreA = score(a)
+        val scoreB = score(b)
+        return if (scoreA >= scoreB) a else b
     }
 
-    private fun scoreResult(text: String): Int {
+    private fun score(text: String): Int {
         if (text.isBlank()) return 0
-        val good    = text.count { it.isLetterOrDigit() || it == ' ' || it == '\n' }
+        val good    = text.count { it.isLetterOrDigit() || it.isWhitespace() }
         val garbage = text.length - good
         return good - (garbage * 2)
     }
 
-    private fun cleanResult(raw: String): String {
-        return raw
-            .lines()
+    private fun cleanText(raw: String): String {
+        return raw.lines()
             .map { it.trim() }
             .filter { line ->
                 if (line.isEmpty()) return@filter true
                 val letters = line.count { it.isLetterOrDigit() || it.isWhitespace() }
-                (letters.toFloat() / line.length.toFloat()) > 0.35f
+                (letters.toFloat() / line.length) > 0.35f
             }
             .joinToString("\n")
             .replace(Regex("[ \\t]{2,}"), " ")
@@ -64,7 +57,5 @@ class OcrManager(context: Context) {
             .trim()
     }
 
-    fun close() {
-        mlKitHelper.close()
-    }
+    fun close() { mlKitHelper.close() }
 }
